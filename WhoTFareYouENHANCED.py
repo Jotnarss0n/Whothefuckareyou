@@ -1,81 +1,75 @@
+import os
+import sys
 import subprocess
 import re
-import sys
-import os
 import time
-from urllib.parse import urlparse
 
 def validate_input(input_value):
-    ip_pattern = r'^\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}$'
-    domain_pattern = r'^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    url_pattern = r'^https?://[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
-    
-    if re.match(ip_pattern, input_value):
+    if re.match(r"^\d+\.\d+\.\d+\.\d+$", input_value):
         return "ip"
-    elif re.match(domain_pattern, input_value):
+    elif re.match(r"^[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$", input_value):
         return "domain"
-    elif re.match(url_pattern, input_value):
+    elif re.match(r"^[a-zA-Z0-9.-]+$", input_value):
+        return "subdomain"
+    elif re.match(r"^https?://", input_value):
         return "url"
     else:
-        return None
+        return "invalid"
 
-def run_command(command, tool_name, num_dots):
-    sys.stdout.write("Running {}.".format(tool_name))
-    sys.stdout.flush()
-    
-    for _ in range(num_dots):
-        sys.stdout.write(".")
-        sys.stdout.flush()
-        time.sleep(0.25)
-    
+def run_command(tool, command, directory, input_value):
     try:
-        result = subprocess.check_output(command, shell=True, stderr=subprocess.STDOUT, universal_newlines=True)
-        sys.stdout.write(" completed.\n")
+        print(f"Running {tool}", end="")
         sys.stdout.flush()
-        return result
-    except subprocess.CalledProcessError as e:
-        sys.stdout.write(" Error: {}.\n".format(e.output))
-        sys.stdout.flush()
-        return None
+        sleep_dots = '..............'
+        for dot in sleep_dots:
+            sys.stdout.write(dot)
+            sys.stdout.flush()
+            time.sleep(0.25)
+        result = subprocess.run(command.split() + [input_value], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        result_stdout = result.stdout
+        sanitized_input_value = re.sub(r"https?://", "", input_value).replace("/", "_")
+        with open(f"{directory}/{tool}-{sanitized_input_value}.md", "w") as f:
+            f.write(f"### {tool}\n\n```\n{result_stdout}\n```\n")
+        print(" completed.")
+    except Exception as e:
+        print(f"Error running {tool}")
+        with open(f"{directory}/{tool}-{sanitized_input_value}.md", "w") as f:
+            f.write(f"### {tool}\n\nError:\n```\nError running {tool}\n```\n")
 
 def main():
     input_value = input("Enter a domain name, IP address, URL, or subdomain: ")
-    
     input_type = validate_input(input_value)
-    if not input_type:
+    if input_type == "invalid":
         print("Invalid input. Please provide a valid domain name, IP address, URL, or subdomain.")
         return
     
-    if input_type == "url":
-        domain = urlparse(input_value).netloc
-    else:
-        domain = input_value
-
-    # Create directory to save the results
-    directory = domain
-    if not os.path.exists(directory):
-        os.makedirs(directory)
+    directory = re.sub(r"https?://", "", input_value)
+    directory = re.sub(r"/.*", "", directory)
+    os.makedirs(directory, exist_ok=True)
     
-    tools = [
-        ("whois", "Whois", 15),
-        ("nslookup", "Nslookup", 12),
-        ("dig", "Dig", 17),
-        ("dnsrecon -d", "Dnsrecon", 12)
-    ]
+    tools = {
+        "Whois": "whois",
+        "Nslookup": "nslookup",
+        "Dig": "dig",
+        "Dnsrecon": "dnsrecon -d",
+    }
     
-    for tool, tool_name, num_dots in tools:
-        command = "{} {}".format(tool, domain)
-        tool_output = run_command(command, tool_name, num_dots)
-        if tool_output:
-            filename = "{}/{}-{}.md".format(directory, tool_name.lower(), domain)
-            with open(filename, "w") as file:
-                file.write("### {}\n\n```\n{}\n```\n".format(tool_name, tool_output))
-
+    for tool, command in tools.items():
+        run_command(tool, command, directory, input_value)
+    
+    # Run wget -r
     if input_type == "url":
-        wget_command = "wget -r -P {} {}".format(directory, input_value)
-        run_command(wget_command, "wget", 16)
-
-    print("Script executed successfully. Check the .md files in the {} folder.".format(directory))
+        print("Running wget", end="")
+        sys.stdout.flush()
+        sleep_dots = '..............'
+        for dot in sleep_dots:
+            sys.stdout.write(dot)
+            sys.stdout.flush()
+            time.sleep(0.25)
+        subprocess.run(["wget", "-r", "-P", directory, input_value], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL)
+        print(" completed.")
+    
+    print(f"Script executed successfully. Check the .md files in the {directory} folder.")
 
 if __name__ == "__main__":
     main()
